@@ -171,7 +171,7 @@ package changes no `.env` file.
 
 ```bash
 composer install
-./vendor/bin/phpunit      # 19 tests, 42 assertions
+./vendor/bin/phpunit      # 22 tests, 52 assertions
 ./vendor/bin/pint
 ```
 
