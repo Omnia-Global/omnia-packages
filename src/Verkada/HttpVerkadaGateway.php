@@ -75,6 +75,13 @@ class HttpVerkadaGateway implements VerkadaGateway
         }
     }
 
+    public function sendPassInvite(string $verkadaUserId): void
+    {
+        $this->request()
+            ->post('/access/v1/access_users/user/pass/invite', ['user_id' => $verkadaUserId])
+            ->throw();
+    }
+
     public function deactivateUser(string $verkadaUserId): void
     {
         $this->request()
@@ -216,6 +223,36 @@ class HttpVerkadaGateway implements VerkadaGateway
                 'time' => $event['timestamp'] ?? $event['created_at'] ?? null,
                 'verkada_user_id' => $event['user_id'] ?? null,
                 'door_id' => $event['door_id'] ?? null,
+                // Always displayable: falls back to the id when Verkada
+                // supplies no name, so a caller never has to null-coalesce.
+                'door_name' => $event['door_name'] ?? $event['door_id'] ?? null,
+                'result' => $event['result'] ?? $event['event_type'] ?? null,
+            ])
+            ->filter(fn (array $event) => $event['time'] !== null)
+            ->values()
+            ->all();
+    }
+
+    public function recentAccessEvents(string $verkadaUserId, int $limit = 20): array
+    {
+        $response = $this->request()
+            ->get('/events/v1/access', [
+                'user_id' => $verkadaUserId,
+                'page_size' => $limit,
+            ]);
+
+        if (! $response->successful()) {
+            // A person with no history, or a filter Verkada does not accept.
+            // Neither should take down the screen that asked.
+            Log::warning('Verkada recentAccessEvents failed', ['status' => $response->status()]);
+
+            return [];
+        }
+
+        return collect($response->json('events', []))
+            ->map(fn (array $event) => [
+                'time' => $event['timestamp'] ?? $event['created_at'] ?? null,
+                'door_name' => $event['door_name'] ?? $event['door_id'] ?? null,
                 'result' => $event['result'] ?? $event['event_type'] ?? null,
             ])
             ->filter(fn (array $event) => $event['time'] !== null)

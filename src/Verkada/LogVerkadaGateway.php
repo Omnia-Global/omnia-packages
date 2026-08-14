@@ -26,6 +26,30 @@ use Illuminate\Support\Str;
  */
 class LogVerkadaGateway implements VerkadaGateway
 {
+    /**
+     * Lets a host application serve its own mirrored door history from the
+     * fake. Registered from a service provider:
+     *
+     *   LogVerkadaGateway::resolveRecentEventsUsing(
+     *       fn (string $verkadaUserId, int $limit) => AccessEvent::query()
+     *           ->where('verkada_user_id', $verkadaUserId)
+     *           ->latest('occurred_at')->limit($limit)->get()
+     *           ->map(fn ($e) => [
+     *               'time' => $e->occurred_at->toIso8601String(),
+     *               'door_name' => $e->door,
+     *               'result' => $e->result,
+     *           ])->all(),
+     *   );
+     *
+     * @var (\Closure(string, int): array<array{time: string, door_name: string|null, result: string|null}>)|null
+     */
+    private static ?\Closure $recentEventsResolver = null;
+
+    public static function resolveRecentEventsUsing(?\Closure $resolver): void
+    {
+        self::$recentEventsResolver = $resolver;
+    }
+
     public function ensureAccessUser(string $name, string $email, ?string $phone = null): string
     {
         $id = 'fake-user-'.Str::substr(md5($email), 0, 12);
@@ -42,6 +66,11 @@ class LogVerkadaGateway implements VerkadaGateway
     public function removeUserFromGroup(string $verkadaUserId, string $groupId): void
     {
         Log::info('[verkada:fake] removeUserFromGroup', compact('verkadaUserId', 'groupId'));
+    }
+
+    public function sendPassInvite(string $verkadaUserId): void
+    {
+        Log::info('[verkada:fake] sendPassInvite', compact('verkadaUserId'));
     }
 
     public function deactivateUser(string $verkadaUserId): void
@@ -118,6 +147,38 @@ class LogVerkadaGateway implements VerkadaGateway
         // through their own UI, which produces a row that can then be
         // correlated, counted and reconciled against.
         return [];
+    }
+
+    /**
+     * Recent door events for one person.
+     *
+     * A product that mirrors door events locally almost certainly wants the
+     * fake to serve *that* rather than invented rows — without a Command
+     * organisation the mirror is the only door data that exists, and a member
+     * drill-down showing different history from the dashboard beside it is
+     * worse than one showing none.
+     *
+     * The package cannot read a host's model, so the host registers a resolver
+     * (see resolveRecentEventsUsing) and gets its own mirror back. With none
+     * registered, a couple of obviously-fake rows so the panel is not empty.
+     */
+    public function recentAccessEvents(string $verkadaUserId, int $limit = 20): array
+    {
+        Log::info('[verkada:fake] recentAccessEvents', compact('verkadaUserId', 'limit'));
+
+        if (self::$recentEventsResolver !== null) {
+            $mirrored = (self::$recentEventsResolver)($verkadaUserId, $limit);
+
+            if ($mirrored !== []) {
+                return $mirrored;
+            }
+        }
+
+        return [
+            ['time' => now()->subHours(3)->toIso8601String(), 'door_name' => 'Front Door', 'result' => 'door_opened'],
+            ['time' => now()->subDay()->toIso8601String(), 'door_name' => 'Front Door', 'result' => 'door_opened'],
+            ['time' => now()->subDays(2)->setTime(6, 12)->toIso8601String(), 'door_name' => 'Side Entrance', 'result' => 'access_denied'],
+        ];
     }
 
     public function footageLink(string $cameraId, DateTimeInterface $at): ?string

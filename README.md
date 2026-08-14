@@ -61,10 +61,10 @@ application runs either way.
 
 | Area | Methods |
 |---|---|
-| Access users & groups | `ensureAccessUser`, `addUserToGroup`, `removeUserFromGroup`, `deactivateUser`, `listGroupUserIds` |
+| Access users & groups | `ensureAccessUser`, `addUserToGroup`, `removeUserFromGroup`, `sendPassInvite`, `deactivateUser`, `listGroupUserIds` |
 | Discovery | `listDoors`, `listCameras`, `listAccessGroups`, `testConnection` |
 | Doors | `unlockDoor` |
-| Events | `listAccessEvents` |
+| Events | `listAccessEvents`, `recentAccessEvents` |
 | Footage | `footageLink`, `thumbnailUrl` |
 | Helix | `createHelixEvent` |
 | Person of Interest | `enrolPersonOfInterest`, `removePersonOfInterest`, `listPersonOfInterestIds` |
@@ -109,7 +109,45 @@ them:
 | `listDoors` / `listCameras` / `listAccessGroups` | three demo rows | An empty door list makes a binding screen look broken. Every id is prefixed `demo_` so it can never be mistaken for a real one |
 | `footageLink` / `thumbnailUrl` | placeholder URLs | `null` would make every evidence panel look like a camera outage, and outages are something you want to be able to *see* in testing |
 | `ensureAccessUser` | a stable id derived from the email | The same person twice must not look like two people to a reconciler |
+| `recentAccessEvents` | the host's mirror if one is registered, else demo rows | See below |
 | `testConnection` | `ok: false` and an explanation | It says plainly that no key is set and no real door will open |
+
+#### Serving your own mirrored history from the fake
+
+A product that mirrors door events locally almost certainly wants the fake to
+serve *that* rather than invented rows — without a Command organisation the
+mirror is the only door data that exists, and a drill-down showing different
+history from the dashboard beside it is worse than one showing none.
+
+The package cannot read a host's model, so the host registers a resolver:
+
+```php
+// AppServiceProvider::boot()
+LogVerkadaGateway::resolveRecentEventsUsing(
+    fn (string $verkadaUserId, int $limit) => AccessEvent::query()
+        ->where('verkada_user_id', $verkadaUserId)
+        ->latest('occurred_at')
+        ->limit($limit)
+        ->get()
+        ->map(fn (AccessEvent $e) => [
+            'time' => $e->occurred_at->toIso8601String(),
+            'door_name' => $e->door,
+            'result' => $e->result,
+        ])
+        ->all(),
+);
+```
+
+An empty result falls back to the demo rows, because a brand-new instance has
+mirrored nothing yet and an empty panel reads as broken rather than as new.
+
+#### `door_id` and `door_name`
+
+`listAccessEvents()` returns both, because they are different things and both
+are wanted: the **id** is what a product matches against its own record of
+which door belongs to which cabinet, room or site, and the **name** is what it
+shows a human. `door_name` falls back to the id when Verkada supplies no name,
+so it is always displayable.
 
 ---
 

@@ -35,6 +35,15 @@ interface VerkadaGateway
 
     public function removeUserFromGroup(string $verkadaUserId, string $groupId): void;
 
+    /**
+     * Email the person a Verkada Pass (mobile credential) invite.
+     *
+     * Used by Pulse and Campus, where staff and members carry a pass on a
+     * phone. Vault's people carry cards, so it never calls this — which costs
+     * it nothing.
+     */
+    public function sendPassInvite(string $verkadaUserId): void;
+
     public function deactivateUser(string $verkadaUserId): void;
 
     /** @return array<string> Verkada user IDs currently in the group, for reconciliation. */
@@ -80,9 +89,22 @@ interface VerkadaGateway
     /**
      * Door events since a timestamp, for the local mirror and webhook backfill.
      *
-     * @return array<array{event_id: string|null, time: string, verkada_user_id: string|null, door_id: string|null, result: string|null}>
+     * `door_id` and `door_name` are both returned because they are genuinely
+     * different things and both are wanted: the id is what a product matches
+     * against its own record of which door belongs to which cabinet, room or
+     * site, and the name is what it shows a human. `door_name` falls back to
+     * the id when Verkada does not supply one, so it is always displayable.
+     *
+     * @return array<array{event_id: string|null, time: string, verkada_user_id: string|null, door_id: string|null, door_name: string|null, result: string|null}>
      */
     public function listAccessEvents(DateTimeInterface $since, int $limit = 500): array;
+
+    /**
+     * Recent door events for one person, newest first.
+     *
+     * @return array<array{time: string, door_name: string|null, result: string|null}>
+     */
+    public function recentAccessEvents(string $verkadaUserId, int $limit = 20): array;
 
     // --- Footage ------------------------------------------------------------
 
