@@ -7,8 +7,9 @@ Internal shared Laravel code for the Omnia Global products — **Pulse**,
 > reason — a private Composer package makes every build server carry a GitHub
 > token just to install it — and for no other. It is not maintained for outside
 > use: no support, no stability promise, no issue triage, and the interface
-> changes whenever one of the three products needs it to. You are welcome to
-> read it. Depending on it is your own risk.
+> changes whenever one of the three products needs it to. It is **proprietary
+> and all rights are reserved** — readable, not licensed. You are welcome to
+> read it; depending on it is neither invited nor permitted.
 >
 > Do not make it private again without reading [Installing](#installing) first.
 
@@ -377,14 +378,14 @@ argument for the former.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+**Proprietary. All rights reserved.** See [LICENSE](LICENSE).
 
-MIT rather than proprietary because `composer.json` already declared it before
-the repository went public, and because a permissive licence on an API client
-costs nothing. It is not an invitation: see the note at the top. If the
-preference is for the code to be *visible but not licensed for reuse*, the
-change is `"license": "proprietary"` in `composer.json` and deleting
-`LICENSE` — say the word.
+The source being readable is a consequence of how Composer installs a
+dependency, not a grant. Publication here is a distribution mechanism: it lets a
+build server fetch the package without holding a credential, and it confers no
+right to use, copy, modify or redistribute the code.
+
+If you have stumbled on this and want to use something in it, ask.
 
 The products that consume it — Pulse, Campus and Vault — are private and
-proprietary.
+proprietary too.
