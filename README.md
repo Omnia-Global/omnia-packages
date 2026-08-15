@@ -1,11 +1,16 @@
 # Omnia Packages
 
-Shared Laravel code for the Omnia Global products — **Pulse**, **Campus** and
-**Vault**.
+Internal shared Laravel code for the Omnia Global products — **Pulse**,
+**Campus** and **Vault**.
 
-[![tests](https://img.shields.io/badge/tests-22%20passing-02BD6F)](#developing)
-[![licence](https://img.shields.io/badge/licence-MIT-02BD6F)](LICENSE)
-[![php](https://img.shields.io/badge/php-8.3%20%7C%208.4-777BB4)](composer.json)
+> **This is an internal package.** The repository is public for one practical
+> reason — a private Composer package makes every build server carry a GitHub
+> token just to install it — and for no other. It is not maintained for outside
+> use: no support, no stability promise, no issue triage, and the interface
+> changes whenever one of the three products needs it to. You are welcome to
+> read it. Depending on it is your own risk.
+>
+> Do not make it private again without reading [Installing](#installing) first.
 
 The three products are one family: Laravel 13 + Inertia v3 + React 19 + Verkada,
 one instance per customer. This package holds what all three need and none of
@@ -20,7 +25,7 @@ are still unverified against a live organisation. One package, one fix.
 
 ## Contents
 
-- [Installing](#installing) · [Why public](#why-this-repository-is-public)
+- [Installing](#installing)
 - [Verkada](#verkada) — [the gateway](#the-gateway) · [webhooks](#webhook-signatures) · [the fake](#what-the-fake-does-and-why-it-differs-per-method) · [`door_id` vs `door_name`](#door_id-and-door_name)
 - [Configuration](#configuration) · [Overriding the binding](#overriding-the-binding)
 - [Who uses what](#who-uses-what) · [Developing](#developing)
@@ -45,27 +50,27 @@ To override any default:
 php artisan vendor:publish --tag=omnia-config
 ```
 
-### Why this repository is public
+### Why the repository is public — and must stay that way
 
-Because a private Composer package forces **every build server to carry a
-GitHub credential just to install a Verkada API client**.
+Not for visibility. Because Composer fetches a package as a zipball from the
+**GitHub HTTPS API**, and for a private repository that needs a `github-oauth`
+token in `auth.json`. A Forge deploy that clones the product repo perfectly well
+over SSH still fails with a bare `404` on the dependency, because Composer never
+uses SSH for a dist download. This happened; it is why the repository is public.
 
-That is not hypothetical. Composer fetches a private package as a zipball from
-the GitHub HTTPS API, which needs a `github-oauth` token in `auth.json` — and a
-Forge deploy that clones the product repo perfectly well over SSH will still
-fail with a bare `404` on the package, because Composer never uses SSH for a
-dist download. The workarounds all exist (`no-api` plus a source install, a
-per-repo deploy key, a token on every server) and every one of them is a thing
-to configure, rotate and forget.
+The alternatives all work and all cost something permanent: `no-api` plus a
+forced source install, a deploy key per repository per server, or a token on
+every build box to configure and rotate. Public removes the problem rather than
+routing around it, and matches
+[`visns-packages`](https://github.com/Omnia-Global/visns-packages).
 
-Public removes the class of problem instead of routing around it. The sibling
-[`visns-packages`](https://github.com/Omnia-Global/visns-packages) has been
-public all along, so this is also the house pattern.
+The trade is only acceptable because of what is in here: an API client, a
+signature check and a logging fake. **No credentials, no customer data, no
+infrastructure detail, no business logic.** If a module ever needs to hold one
+of those, it does not belong in this repository — put it behind the private
+boundary and pay the token cost there instead.
 
-**There is nothing here worth keeping shut**: a Verkada API client, a webhook
-signature check, and a logging fake. No credentials, no customer data, no
-infrastructure detail. The products that consume it — Pulse, Campus and Vault —
-stay private, and that is where the business logic lives.
+Pulse, Campus and Vault stay private. That is where the product is.
 
 ---
 
@@ -347,9 +352,15 @@ and Fortify *actions* are fair game; the model they act on is not.
 
 ## Versioning
 
-Semantic versioning, currently `0.x`. The major stays at zero until the endpoint
-paths have been confirmed against a live Verkada organisation — that spike is
-what earns a `1.0`, not the passage of time.
+Tags exist so the three products can pin something and upgrade deliberately,
+not as a compatibility promise to anyone outside them. Currently `0.x`, and the
+major stays at zero until the endpoint paths have been confirmed against a live
+Verkada organisation — that spike is what earns a `1.0`, not the passage of
+time.
+
+The rule inside the family is simply that all three sit on the same version. A
+product does not get to lag a minor behind because upgrading is inconvenient;
+that is how you end up back with three copies wearing a different hat.
 
 | Version | What changed |
 |---|---|
@@ -366,4 +377,14 @@ argument for the former.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). The products that consume it stay private.
+MIT — see [LICENSE](LICENSE).
+
+MIT rather than proprietary because `composer.json` already declared it before
+the repository went public, and because a permissive licence on an API client
+costs nothing. It is not an invitation: see the note at the top. If the
+preference is for the code to be *visible but not licensed for reuse*, the
+change is `"license": "proprietary"` in `composer.json` and deleting
+`LICENSE` — say the word.
+
+The products that consume it — Pulse, Campus and Vault — are private and
+proprietary.
