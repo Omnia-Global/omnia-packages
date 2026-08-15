@@ -17,9 +17,13 @@ byte-identical copies.
 ## Installing
 
 ```bash
-composer config repositories.omnia-packages vcs git@github.com:Omnia-Global/omnia-packages.git
+composer config repositories.omnia-packages vcs https://github.com/Omnia-Global/omnia-packages.git
 composer require omniaglobal/omnia-packages
 ```
+
+The repository is public, so no token and no deploy key are needed — which is
+the point: a private package forces every build server to carry a credential
+just to install a Verkada API client.
 
 The service provider is auto-discovered and the config is merged, so a product
 happy with the defaults sets environment variables and nothing else.
@@ -214,4 +218,8 @@ fair game; the model they act on is not.
 
 ## Licence
 
-Proprietary — Omnia Global.
+MIT — see [LICENSE](LICENSE). The package is public so that build servers can
+install it without a credential; it holds a Verkada API client and a webhook
+signature check, and nothing about any customer.
+
+The products that consume it — Pulse, Campus and Vault — remain private.
