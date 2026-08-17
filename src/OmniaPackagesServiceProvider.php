@@ -57,6 +57,7 @@ class OmniaPackagesServiceProvider extends ServiceProvider
                 helixEventTypeUid: config('omnia.verkada.helix_event_type_uid'),
                 timeout: (int) config('omnia.verkada.timeout', 15),
                 retries: (int) config('omnia.verkada.retries', 2),
+                orgId: config('omnia.verkada.org_id'),
             );
         });
 

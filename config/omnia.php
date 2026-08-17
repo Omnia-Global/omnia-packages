@@ -31,6 +31,14 @@ return [
         'base_url' => env('VERKADA_BASE_URL', 'https://api.verkada.com'),
 
         /*
+        | The organisation id. Needed only to stream footage in a browser —
+        | every other call infers the organisation from the API key. It is an
+        | identifier rather than a secret, and it appears in every webhook
+        | delivery Verkada sends.
+        */
+        'org_id' => env('VERKADA_ORG_ID'),
+
+        /*
         | Shared secret for the event webhooks. WebhookSignature refuses every
         | request when this is empty — an unauthenticated endpoint that writes
         | to a custody or attendance record is a worse failure than a webhook

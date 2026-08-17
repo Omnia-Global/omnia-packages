@@ -24,12 +24,17 @@ use Illuminate\Support\Facades\Log;
  */
 class HttpVerkadaGateway implements VerkadaGateway
 {
+    /** Verkada's cap on a single historical stream request. */
+    private const MAX_STREAM_SECONDS = 3600;
+
     public function __construct(
         private readonly string $apiKey,
         private readonly string $baseUrl = 'https://api.verkada.com',
         private readonly ?string $helixEventTypeUid = null,
         private readonly int $timeout = 15,
         private readonly int $retries = 2,
+        /** Required for streaming only; every other call infers it from the key. */
+        private readonly ?string $orgId = null,
     ) {}
 
     // --- Access users and groups -------------------------------------------
@@ -393,6 +398,59 @@ class HttpVerkadaGateway implements VerkadaGateway
         ]);
 
         return $response->successful() ? $response->json('url') : null;
+    }
+
+    /**
+     * A short-lived JWT for the streaming endpoint. Verkada issues these for
+     * 30 minutes; they are never stored, because a stored one outlives the
+     * reason it was minted.
+     */
+    public function streamingToken(): ?string
+    {
+        $response = $this->request()->get('/cameras/v1/footage/token');
+
+        if (! $response->successful()) {
+            Log::warning('Verkada streaming token refused', ['status' => $response->status()]);
+
+            return null;
+        }
+
+        return $response->json('jwt') ?? $response->json('token');
+    }
+
+    public function footageStreamUrl(string $cameraId, DateTimeInterface $from, DateTimeInterface $to): ?string
+    {
+        if (blank($this->orgId)) {
+            Log::warning('Verkada streaming needs an organisation id; set VERKADA_ORG_ID.');
+
+            return null;
+        }
+
+        $seconds = $to->getTimestamp() - $from->getTimestamp();
+
+        if ($seconds <= 0 || $seconds > self::MAX_STREAM_SECONDS) {
+            Log::warning('Verkada streaming window out of range', ['seconds' => $seconds]);
+
+            return null;
+        }
+
+        $jwt = $this->streamingToken();
+
+        if (blank($jwt)) {
+            return null;
+        }
+
+        // The stream lives under /stream on the same regional host as the API,
+        // and `stream.m3u8` is the key that asks for an HLS playlist rather
+        // than a single segment.
+        return rtrim($this->baseUrl, '/').'/stream/cameras/v1/footage/stream/stream.m3u8?'.http_build_query([
+            'org_id' => $this->orgId,
+            'camera_id' => $cameraId,
+            'start_time' => $from->getTimestamp(),
+            'end_time' => $to->getTimestamp(),
+            'jwt' => $jwt,
+            'resolution' => 'high_res',
+        ]);
     }
 
     // --- Helix --------------------------------------------------------------

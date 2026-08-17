@@ -210,6 +210,22 @@ class LogVerkadaGateway implements VerkadaGateway
         return 'https://command.verkada.com/fake/thumb/'.$cameraId.'?ts='.$at->getTimestamp();
     }
 
+    /**
+     * No fake stream. A player pointed at an invented URL shows a broken video
+     * element, which reads as "our integration is broken" rather than "there is
+     * no Verkada here" — and the screens already say the latter plainly.
+     */
+    public function footageStreamUrl(string $cameraId, DateTimeInterface $from, DateTimeInterface $to): ?string
+    {
+        Log::info('[verkada:fake] footageStreamUrl', [
+            'camera_id' => $cameraId,
+            'from' => $from->format('c'),
+            'to' => $to->format('c'),
+        ]);
+
+        return null;
+    }
+
     public function createHelixEvent(string $cameraId, DateTimeInterface $at, array $attributes): ?string
     {
         $id = 'fake-helix-'.Str::random(10);

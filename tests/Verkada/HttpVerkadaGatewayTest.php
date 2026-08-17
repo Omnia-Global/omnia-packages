@@ -2,6 +2,7 @@
 
 namespace OmniaGlobal\OmniaPackages\Tests\Verkada;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 use OmniaGlobal\OmniaPackages\Tests\TestCase;
 use OmniaGlobal\OmniaPackages\Verkada\AccessResult;
@@ -23,9 +24,15 @@ class HttpVerkadaGatewayTest extends TestCase
         return new HttpVerkadaGateway(apiKey: 'test-key', baseUrl: 'https://api.verkada.example');
     }
 
+    /**
+     * Specific patterns first. The catch-all auth pattern also matches the
+     * streaming token endpoint, which ends in the same word, and a fake that
+     * shadows the call under test is how a passing suite proves nothing —
+     * exactly the failure this file exists to stop repeating.
+     */
     private function fake(array $responses): void
     {
-        Http::fake(['*/token' => Http::response(['token' => 'session-token'])] + $responses);
+        Http::fake($responses + ['*/token' => Http::response(['token' => 'session-token'])]);
     }
 
     // --- Discovery ----------------------------------------------------------
@@ -227,5 +234,76 @@ class HttpVerkadaGatewayTest extends TestCase
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/access/v1/doors')
             && $request->hasHeader('x-verkada-auth', 'session-token'));
+    }
+
+    // --- Streaming ----------------------------------------------------------
+
+    private function streamingGateway(): HttpVerkadaGateway
+    {
+        return new HttpVerkadaGateway(
+            apiKey: 'test-key',
+            baseUrl: 'https://api.au.verkada.example',
+            orgId: 'org_1',
+        );
+    }
+
+    public function test_a_stream_url_carries_the_window_and_a_fresh_token(): void
+    {
+        $this->fake([
+            '*/cameras/v1/footage/token' => Http::response(['jwt' => 'stream-jwt']),
+        ]);
+
+        $url = $this->streamingGateway()->footageStreamUrl(
+            'cam_1',
+            CarbonImmutable::createFromTimestamp(1755400000),
+            CarbonImmutable::createFromTimestamp(1755400360),
+        );
+
+        $this->assertStringStartsWith(
+            'https://api.au.verkada.example/stream/cameras/v1/footage/stream/stream.m3u8?',
+            $url,
+        );
+        $this->assertStringContainsString('camera_id=cam_1', $url);
+        $this->assertStringContainsString('start_time=1755400000', $url);
+        $this->assertStringContainsString('end_time=1755400360', $url);
+        $this->assertStringContainsString('jwt=stream-jwt', $url);
+    }
+
+    /** Verkada caps a historical request at an hour; a longer one just fails. */
+    public function test_a_window_longer_than_an_hour_is_refused(): void
+    {
+        $this->fake(['*/cameras/v1/footage/token' => Http::response(['jwt' => 'stream-jwt'])]);
+
+        $this->assertNull($this->streamingGateway()->footageStreamUrl(
+            'cam_1',
+            CarbonImmutable::createFromTimestamp(1755400000),
+            CarbonImmutable::createFromTimestamp(1755400000 + 3601),
+        ));
+    }
+
+    /**
+     * No org id, no stream — and a null rather than a malformed URL, because a
+     * player with no source fails visibly and a broken one looks like an outage.
+     */
+    public function test_without_an_organisation_id_there_is_no_stream(): void
+    {
+        $this->fake(['*/cameras/v1/footage/token' => Http::response(['jwt' => 'stream-jwt'])]);
+
+        $this->assertNull($this->gateway()->footageStreamUrl(
+            'cam_1',
+            CarbonImmutable::createFromTimestamp(1755400000),
+            CarbonImmutable::createFromTimestamp(1755400060),
+        ));
+    }
+
+    public function test_a_refused_token_yields_no_stream(): void
+    {
+        $this->fake(['*/cameras/v1/footage/token' => Http::response(status: 403)]);
+
+        $this->assertNull($this->streamingGateway()->footageStreamUrl(
+            'cam_1',
+            CarbonImmutable::createFromTimestamp(1755400000),
+            CarbonImmutable::createFromTimestamp(1755400060),
+        ));
     }
 }

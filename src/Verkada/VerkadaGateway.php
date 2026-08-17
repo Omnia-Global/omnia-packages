@@ -150,6 +150,26 @@ interface VerkadaGateway
     /** A still from this camera at this moment, for attaching to a record. */
     public function thumbnailUrl(string $cameraId, DateTimeInterface $at): ?string;
 
+    /**
+     * An HLS playlist URL for a span of recorded footage, playable in a browser.
+     *
+     * This is the one call that lets a product show video in its own interface
+     * rather than sending somebody to Command, and it deserves care from the
+     * host rather than convenience: Command's own permissions no longer stand
+     * between a viewer and footage of a named person, so whatever decides who
+     * may watch is now the host's code and the host's audit trail.
+     *
+     * Still not rehosting. The browser fetches segments from Verkada directly;
+     * nothing is copied, cached or stored. The URL carries a short-lived token
+     * and stops working when it expires — mint one per view rather than
+     * storing it.
+     *
+     * Verkada caps a historical request at one hour. Returns null when no token
+     * can be minted, when the org id is unknown, or when the span is too long —
+     * a player with no source is a better failure than a broken one.
+     */
+    public function footageStreamUrl(string $cameraId, DateTimeInterface $from, DateTimeInterface $to): ?string;
+
     // --- Helix --------------------------------------------------------------
 
     /**
