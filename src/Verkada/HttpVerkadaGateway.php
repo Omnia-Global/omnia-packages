@@ -231,6 +231,12 @@ class HttpVerkadaGateway implements VerkadaGateway
 
         $this->request()
             ->post($path, array_filter([
+                // Verkada's name for the badge holder, carried alongside the id.
+                // A host that cannot match the credential to its own records can
+                // still say who Verkada thinks it is, instead of showing a UUID.
+                'verkada_user_name' => $event['user_name']
+                    ?? ($info['userName'] ?? null)
+                    ?? ($info['userInfo']['name'] ?? null),
                 'door_id' => $doorId,
                 'user_id' => $asVerkadaUserId,
             ]))
@@ -301,7 +307,7 @@ class HttpVerkadaGateway implements VerkadaGateway
      * working — the two have to coexist rather than be swapped.
      *
      * @param  array<string, mixed>  $event
-     * @return array{event_id: string|null, time: string|null, verkada_user_id: string|null, door_id: string|null, door_name: string|null, result: string, event_type: string|null}
+     * @return array{event_id: string|null, time: string|null, verkada_user_id: string|null, verkada_user_name: string|null, door_id: string|null, door_name: string|null, result: string, event_type: string|null}
      */
     private function accessEvent(array $event): array
     {
@@ -323,6 +329,12 @@ class HttpVerkadaGateway implements VerkadaGateway
                 ?? ($info['userId'] ?? null)
                 ?? ($info['user_id'] ?? null)
                 ?? ($info['userInfo']['user_id'] ?? null),
+            // Verkada's name for the badge holder, carried alongside the id.
+            // A host that cannot match the credential to its own records can
+            // still say who Verkada thinks it is, instead of showing a UUID.
+            'verkada_user_name' => $event['user_name']
+                ?? ($info['userName'] ?? null)
+                ?? ($info['userInfo']['name'] ?? null),
             'door_id' => $doorId,
             // Always displayable: falls back to the id when Verkada supplies
             // no name, so a caller never has to null-coalesce.

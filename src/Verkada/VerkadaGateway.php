@@ -110,7 +110,12 @@ interface VerkadaGateway
      *
      * `$limit` is clamped to Verkada's documented maximum page size of 200.
      *
-     * @return array<array{event_id: string|null, time: string, verkada_user_id: string|null, door_id: string|null, door_name: string|null, result: string, event_type: string|null}>
+     * `verkada_user_name` is Verkada's own label for the badge holder. It is
+     * never a substitute for a host's own record of a person — it carries no
+     * entitlement, registration or role — but it lets a product name somebody
+     * it has not yet been told about, rather than displaying a UUID.
+     *
+     * @return array<array{event_id: string|null, time: string, verkada_user_id: string|null, verkada_user_name: string|null, door_id: string|null, door_name: string|null, result: string, event_type: string|null}>
      */
     public function listAccessEvents(DateTimeInterface $since, int $limit = 500): array;
 

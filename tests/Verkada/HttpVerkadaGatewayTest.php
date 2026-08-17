@@ -154,6 +154,7 @@ class HttpVerkadaGatewayTest extends TestCase
         $this->assertCount(1, $events);
         $this->assertSame('evt_1', $events[0]['event_id']);
         $this->assertSame('user_a', $events[0]['verkada_user_id']);
+        $this->assertSame('A. Nurse', $events[0]['verkada_user_name']);
         $this->assertSame('door_1', $events[0]['door_id']);
         $this->assertSame('Recovery S8 Safe', $events[0]['door_name']);
         $this->assertSame(AccessResult::GRANTED, $events[0]['result']);
