@@ -2,6 +2,7 @@
 
 namespace OmniaGlobal\OmniaPackages\Verkada;
 
+use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
@@ -89,15 +90,25 @@ class HttpVerkadaGateway implements VerkadaGateway
             ->throw();
     }
 
+    /**
+     * Verkada returns the membership as `user_ids`: a flat array of strings,
+     * not a list of user objects. Reading `users[].user_id` — which this did —
+     * finds nothing, and "nothing" is a legitimate answer for an empty group,
+     * so every group looked empty and every entitled person looked like access
+     * drift. A reconcile that reports the whole roster as missing is not a
+     * loud failure; it is a quiet one that gets ignored.
+     */
     public function listGroupUserIds(string $groupId): array
     {
         $response = $this->request()
             ->get('/access/v1/access_groups/group', ['group_id' => $groupId])
             ->throw();
 
-        return collect($response->json('users', []))
-            ->pluck('user_id')
-            ->filter()
+        return collect($response->json('user_ids', []))
+            // Older payloads (and Command's own exports) carry objects instead.
+            ->merge(collect($response->json('users', []))->pluck('user_id'))
+            ->filter(fn ($id) => is_string($id) && $id !== '')
+            ->unique()
             ->values()
             ->all();
     }
@@ -109,7 +120,7 @@ class HttpVerkadaGateway implements VerkadaGateway
         return $this->discover('/access/v1/doors', 'doors', fn (array $d) => [
             'id' => $d['door_id'] ?? $d['id'] ?? null,
             'name' => $d['name'] ?? $d['door_name'] ?? 'Unnamed door',
-            'site' => $d['site_name'] ?? $d['site'] ?? null,
+            'site' => $this->siteName($d),
         ]);
     }
 
@@ -118,8 +129,28 @@ class HttpVerkadaGateway implements VerkadaGateway
         return $this->discover('/cameras/v1/devices', 'cameras', fn (array $c) => [
             'id' => $c['camera_id'] ?? $c['id'] ?? null,
             'name' => $c['name'] ?? 'Unnamed camera',
-            'site' => $c['site'] ?? $c['location'] ?? null,
+            'site' => $this->siteName($c) ?? (is_string($c['location'] ?? null) ? $c['location'] : null),
         ]);
+    }
+
+    /**
+     * A site is a `{name, site_id}` object on a door and a plain string on a
+     * camera, and both arrive under the key `site`.
+     *
+     * Taking the value as-is put a PHP array into a field the products render
+     * as text, so every door in the binding list read "Ward A — [object
+     * Object]" — the kind of defect that makes an administrator distrust the
+     * whole screen, including the door ID beside it, which was correct.
+     */
+    private function siteName(array $row): ?string
+    {
+        $site = $row['site'] ?? null;
+
+        return match (true) {
+            is_string($site) && $site !== '' => $site,
+            is_array($site) => $site['name'] ?? null,
+            default => $row['site_name'] ?? null,
+        };
     }
 
     public function listAccessGroups(): array
@@ -208,26 +239,24 @@ class HttpVerkadaGateway implements VerkadaGateway
 
     // --- Access events ------------------------------------------------------
 
+    /**
+     * Verkada's documented page_size ceiling. Asking for more is a 400, and a
+     * 400 here is not a slow sync — it is no openings at all, from the path
+     * that exists to catch what the webhook dropped.
+     */
+    private const MAX_PAGE_SIZE = 200;
+
     public function listAccessEvents(DateTimeInterface $since, int $limit = 500): array
     {
         $response = $this->request()
             ->get('/events/v1/access', [
                 'start_time' => $since->getTimestamp(),
-                'page_size' => $limit,
+                'page_size' => min($limit, self::MAX_PAGE_SIZE),
             ])
             ->throw();
 
         return collect($response->json('events', []))
-            ->map(fn (array $event) => [
-                'event_id' => $event['event_id'] ?? null,
-                'time' => $event['timestamp'] ?? $event['created_at'] ?? null,
-                'verkada_user_id' => $event['user_id'] ?? null,
-                'door_id' => $event['door_id'] ?? null,
-                // Always displayable: falls back to the id when Verkada
-                // supplies no name, so a caller never has to null-coalesce.
-                'door_name' => $event['door_name'] ?? $event['door_id'] ?? null,
-                'result' => $event['result'] ?? $event['event_type'] ?? null,
-            ])
+            ->map(fn (array $event) => $this->accessEvent($event))
             ->filter(fn (array $event) => $event['time'] !== null)
             ->values()
             ->all();
@@ -238,7 +267,7 @@ class HttpVerkadaGateway implements VerkadaGateway
         $response = $this->request()
             ->get('/events/v1/access', [
                 'user_id' => $verkadaUserId,
-                'page_size' => $limit,
+                'page_size' => min($limit, self::MAX_PAGE_SIZE),
             ]);
 
         if (! $response->successful()) {
@@ -250,14 +279,73 @@ class HttpVerkadaGateway implements VerkadaGateway
         }
 
         return collect($response->json('events', []))
-            ->map(fn (array $event) => [
-                'time' => $event['timestamp'] ?? $event['created_at'] ?? null,
-                'door_name' => $event['door_name'] ?? $event['door_id'] ?? null,
-                'result' => $event['result'] ?? $event['event_type'] ?? null,
-            ])
+            ->map(fn (array $event) => collect($this->accessEvent($event))
+                ->only(['time', 'door_name', 'result'])
+                ->all())
             ->filter(fn (array $event) => $event['time'] !== null)
             ->values()
             ->all();
+    }
+
+    /**
+     * One access event, flattened.
+     *
+     * Verkada puts the identities inside an `event_info` object and names them
+     * in camelCase — `userId`, `doorId`, `doorInfo.name` — while the envelope
+     * around it is snake_case. Reading `user_id` and `door_id` off the top
+     * level, as this did, finds neither: every polled event came back with a
+     * null door, was skipped as "a door we do not manage", and the products
+     * recorded nothing while reporting a healthy sync.
+     *
+     * The flat keys are still read first so an org on the older shape keeps
+     * working — the two have to coexist rather than be swapped.
+     *
+     * @param  array<string, mixed>  $event
+     * @return array{event_id: string|null, time: string|null, verkada_user_id: string|null, door_id: string|null, door_name: string|null, result: string, event_type: string|null}
+     */
+    private function accessEvent(array $event): array
+    {
+        $info = $event['event_info'] ?? [];
+        $type = $event['event_type'] ?? $event['notification_type'] ?? null;
+
+        $doorId = $event['door_id']
+            ?? ($info['doorId'] ?? null)
+            ?? ($info['door_id'] ?? null)
+            ?? ($info['doorInfo']['door_id'] ?? null);
+
+        return [
+            'event_id' => $event['event_id'] ?? null,
+            // Normalised to ISO-8601 here rather than at each call site: the
+            // API sends Unix seconds, and Carbon::parse() of a bare integer is
+            // not the timestamp anybody expects.
+            'time' => $this->timestamp($event['timestamp'] ?? $event['created_at'] ?? $event['created'] ?? null),
+            'verkada_user_id' => $event['user_id']
+                ?? ($info['userId'] ?? null)
+                ?? ($info['user_id'] ?? null)
+                ?? ($info['userInfo']['user_id'] ?? null),
+            'door_id' => $doorId,
+            // Always displayable: falls back to the id when Verkada supplies
+            // no name, so a caller never has to null-coalesce.
+            'door_name' => $event['door_name']
+                ?? ($info['doorInfo']['name'] ?? null)
+                ?? ($info['doorName'] ?? null)
+                ?? $doorId,
+            'result' => AccessResult::normalise($type, $info['accepted'] ?? null),
+            // The raw type is kept beside the verdict: door_held_open and
+            // door_forced are both "granted" and both worth reading.
+            'event_type' => $type,
+        ];
+    }
+
+    private function timestamp(mixed $raw): ?string
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        return is_numeric($raw)
+            ? CarbonImmutable::createFromTimestamp((int) $raw)->toIso8601String()
+            : (string) $raw;
     }
 
     // --- Footage ------------------------------------------------------------

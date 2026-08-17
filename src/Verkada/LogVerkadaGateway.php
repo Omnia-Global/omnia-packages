@@ -174,10 +174,13 @@ class LogVerkadaGateway implements VerkadaGateway
             }
         }
 
+        // `result` is the normalised verdict, not Verkada's raw event type —
+        // the fake has to speak the same vocabulary as the real client or a
+        // product tested against it breaks the day it meets a real org.
         return [
-            ['time' => now()->subHours(3)->toIso8601String(), 'door_name' => 'Front Door', 'result' => 'door_opened'],
-            ['time' => now()->subDay()->toIso8601String(), 'door_name' => 'Front Door', 'result' => 'door_opened'],
-            ['time' => now()->subDays(2)->setTime(6, 12)->toIso8601String(), 'door_name' => 'Side Entrance', 'result' => 'access_denied'],
+            ['time' => now()->subHours(3)->toIso8601String(), 'door_name' => 'Front Door', 'result' => AccessResult::GRANTED],
+            ['time' => now()->subDay()->toIso8601String(), 'door_name' => 'Front Door', 'result' => AccessResult::GRANTED],
+            ['time' => now()->subDays(2)->setTime(6, 12)->toIso8601String(), 'door_name' => 'Side Entrance', 'result' => AccessResult::DENIED],
         ];
     }
 

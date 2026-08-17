@@ -19,10 +19,17 @@ use DateTimeInterface;
  * reason to split this into narrower contracts and every reason not to, since
  * a split would mean three places to change when Verkada changes.
  *
- * ⚠ Endpoint paths below follow the public API documentation and have **not**
- * been exercised against a live Verkada organisation. Confirming them is the
- * phase-0 spike. Until that happens, only LogVerkadaGateway has actually run —
- * see the README.
+ * ⚠ Paths and payload shapes below were checked field-by-field against
+ * apidocs.verkada.com, and the discovery calls have now run against a live
+ * organisation. The event paths have not. What that audit found is the reason
+ * for the caution: four mappings were wrong in ways that failed silently — a
+ * webhook signature that refused every real delivery, identities read from the
+ * top level of an event instead of its `event_info` envelope, group membership
+ * read from the wrong key, and a door's nested `site` object rendered into a
+ * screen as text. None of them threw. All of them passed their tests.
+ *
+ * The lesson worth keeping: a fake you wrote agrees with a client you wrote,
+ * and proves nothing about the vendor. Fixtures belong to Verkada's reference.
  */
 interface VerkadaGateway
 {
@@ -95,14 +102,22 @@ interface VerkadaGateway
      * site, and the name is what it shows a human. `door_name` falls back to
      * the id when Verkada does not supply one, so it is always displayable.
      *
-     * @return array<array{event_id: string|null, time: string, verkada_user_id: string|null, door_id: string|null, door_name: string|null, result: string|null}>
+     * `time` is always ISO-8601, never the Unix seconds Verkada sends, and
+     * `result` is always `granted` or `denied` — see AccessResult. Verkada's
+     * own word for the event (`door_opened`, `door_held_open`, `door_forced`)
+     * is kept beside it as `event_type`, because the verdict is what a product
+     * queries on and the raw type is what an investigator reads.
+     *
+     * `$limit` is clamped to Verkada's documented maximum page size of 200.
+     *
+     * @return array<array{event_id: string|null, time: string, verkada_user_id: string|null, door_id: string|null, door_name: string|null, result: string, event_type: string|null}>
      */
     public function listAccessEvents(DateTimeInterface $since, int $limit = 500): array;
 
     /**
      * Recent door events for one person, newest first.
      *
-     * @return array<array{time: string, door_name: string|null, result: string|null}>
+     * @return array<array{time: string, door_name: string|null, result: string}>
      */
     public function recentAccessEvents(string $verkadaUserId, int $limit = 20): array;
 

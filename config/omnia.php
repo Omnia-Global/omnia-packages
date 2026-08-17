@@ -39,6 +39,17 @@ return [
         'webhook_secret' => env('VERKADA_WEBHOOK_SECRET'),
 
         /*
+        | How old a signed delivery may be before it is refused, in seconds.
+        |
+        | Verkada signs the timestamp along with the body, so this is a real
+        | replay bound rather than a formality. Wider than Verkada's own
+        | 60-second example on purpose: a replay is idempotent on the event ID,
+        | while a host whose clock has drifted a couple of minutes silently
+        | records nothing at all.
+        */
+        'webhook_tolerance' => (int) env('VERKADA_WEBHOOK_TOLERANCE', 300),
+
+        /*
         | The Helix event type to post custom video metadata against. Without
         | it createHelixEvent() returns null and nothing else changes.
         */

@@ -365,6 +365,7 @@ that is how you end up back with three copies wearing a different hat.
 
 | Version | What changed |
 |---|---|
+| `0.3.0` | **Correctness pass against apidocs.verkada.com.** `WebhookSignature` implements Verkada's real scheme (`<timestamp>\|<digest>`, signing `body\|timestamp`) — the old digest-over-the-body-alone meant every live delivery was refused with a 401 while the tests passed. Access events are read out of the `event_info` envelope instead of the top level, `result` is normalised to `granted`/`denied` by the new `AccessResult`, `time` comes back ISO-8601, group membership is read from `user_ids`, page size is clamped to 200, and a door's nested `site` object is reduced to its name. **Breaking:** `sign()` now returns the whole header value, and `result` is a verdict rather than Verkada's raw event type |
 | `0.2.0` | `sendPassInvite`, `recentAccessEvents`, `door_name` alongside `door_id`, and the resolver hook — all surfaced by adopting the package in Pulse and Campus |
 | `0.1.0` | First release: the gateway, both implementations, `WebhookSignature` |
 
