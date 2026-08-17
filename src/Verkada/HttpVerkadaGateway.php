@@ -135,6 +135,9 @@ class HttpVerkadaGateway implements VerkadaGateway
             'id' => $c['camera_id'] ?? $c['id'] ?? null,
             'name' => $c['name'] ?? 'Unnamed camera',
             'site' => $this->siteName($c) ?? (is_string($c['location'] ?? null) ? $c['location'] : null),
+            // The model is how somebody standing in the room works out which
+            // camera a list entry actually refers to.
+            'model' => $c['model'] ?? null,
         ]);
     }
 
@@ -472,6 +475,19 @@ class HttpVerkadaGateway implements VerkadaGateway
             'end_time' => $to->getTimestamp(),
             'jwt' => $jwt,
             'resolution' => 'high_res',
+            /*
+             | H.264, explicitly.
+             |
+             | Verkada streams a camera's native codec by default, and its
+             | newer cameras record HEVC — which Safari plays and Chrome and
+             | Firefox do not, so half an estate plays and half shows a black
+             | box with no error. Asking for h264 makes Verkada transcode the
+             | HEVC ones (`transcode=True` appears on the segments) and leaves
+             | the rest untouched. Compatibility everywhere beats fidelity in
+             | one browser for footage nobody is watching for its picture
+             | quality.
+             */
+            'codec' => 'h264',
         ]);
     }
 

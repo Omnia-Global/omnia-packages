@@ -70,6 +70,7 @@ class HttpVerkadaGatewayTest extends TestCase
                 'name' => 'Ward A Corridor',
                 'site' => 'Riverside Hospital',
                 'location' => 'Level 2',
+                'model' => 'CD52',
             ],
         ]])]);
 
@@ -77,6 +78,7 @@ class HttpVerkadaGatewayTest extends TestCase
             'id' => '99c16b13-6c52-45f6-9738-17f9918fa695',
             'name' => 'Ward A Corridor',
             'site' => 'Riverside Hospital',
+            'model' => 'CD52',
         ]], $this->gateway()->listCameras());
     }
 
@@ -267,6 +269,10 @@ class HttpVerkadaGatewayTest extends TestCase
         $this->assertStringContainsString('start_time=1755400000', $url);
         $this->assertStringContainsString('end_time=1755400360', $url);
         $this->assertStringContainsString('jwt=stream-jwt', $url);
+        // H.264 explicitly: Verkada's newer cameras record HEVC, which Chrome
+        // and Firefox cannot decode, so half an estate would play and half
+        // would show a black box with no error.
+        $this->assertStringContainsString('codec=h264', $url);
     }
 
     /** Verkada caps a historical request at an hour; a longer one just fails. */

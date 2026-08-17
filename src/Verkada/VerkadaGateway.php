@@ -66,7 +66,7 @@ interface VerkadaGateway
     /** @return array<array{id: string, name: string, site: string|null}> */
     public function listDoors(): array;
 
-    /** @return array<array{id: string, name: string, site: string|null}> */
+    /** @return array<array{id: string, name: string, site: string|null, model: string|null}> */
     public function listCameras(): array;
 
     /** @return array<array{id: string, name: string}> */

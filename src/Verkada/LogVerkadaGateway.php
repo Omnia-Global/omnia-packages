@@ -113,9 +113,9 @@ class LogVerkadaGateway implements VerkadaGateway
     public function listCameras(): array
     {
         return [
-            ['id' => 'demo_cam_recovery', 'name' => 'Recovery Ward — cabinet', 'site' => 'Demo Site'],
-            ['id' => 'demo_cam_theatre', 'name' => 'Theatre — anteroom', 'site' => 'Demo Site'],
-            ['id' => 'demo_cam_corridor', 'name' => 'Corridor — outside pharmacy', 'site' => 'Demo Site'],
+            ['id' => 'demo_cam_recovery', 'name' => 'Recovery Ward — cabinet', 'site' => 'Demo Site', 'model' => 'CD52'],
+            ['id' => 'demo_cam_theatre', 'name' => 'Theatre — anteroom', 'site' => 'Demo Site', 'model' => 'CD42'],
+            ['id' => 'demo_cam_corridor', 'name' => 'Corridor — outside pharmacy', 'site' => 'Demo Site', 'model' => 'CF83'],
         ];
     }
 
