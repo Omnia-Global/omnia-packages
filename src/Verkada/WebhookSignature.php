@@ -81,7 +81,20 @@ class WebhookSignature
             return false;
         }
 
+        /*
+         | Logged, not silent.
+         |
+         | This branch was the one blind spot left in the ingest path: a
+         | delivery with no signature header at all was refused without a
+         | trace, so "Verkada is sending nothing" and "Verkada is sending
+         | something we do not recognise" looked identical from the log — an
+         | hour of a production diagnosis went on telling those two apart.
+         */
         if (blank($header)) {
+            Log::warning('Verkada webhook rejected: no signature header.', [
+                'expected_header' => self::HEADER,
+            ]);
+
             return false;
         }
 
