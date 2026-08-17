@@ -405,12 +405,34 @@ class HttpVerkadaGateway implements VerkadaGateway
      * 30 minutes; they are never stored, because a stored one outlives the
      * reason it was minted.
      */
+    /**
+     * A short-lived JWT for the streaming endpoint.
+     *
+     * The **org API key**, not the session token every other call uses. This is
+     * the one endpoint that authenticates differently, and sending the session
+     * token gets a 500 with `"Unknown error"` — which reads as a Verkada outage
+     * rather than as our mistake, and cost an afternoon accordingly. With the
+     * right header the same key answers `400 "The provided API Key doesn't have
+     * footage streaming permissions."`, which is a sentence somebody can act on.
+     *
+     * Streaming is a permission on the key itself, granted in Command, and
+     * separate from everything else the key can do.
+     */
     public function streamingToken(): ?string
     {
-        $response = $this->request()->get('/cameras/v1/footage/token');
+        $response = Http::baseUrl($this->baseUrl)
+            ->withHeaders(['x-api-key' => $this->apiKey])
+            ->timeout($this->timeout)
+            ->get('/cameras/v1/footage/token');
 
         if (! $response->successful()) {
-            Log::warning('Verkada streaming token refused', ['status' => $response->status()]);
+            // Verkada's own words, because they name the fix: a missing
+            // permission, an unlicensed plan and a broken endpoint are three
+            // different problems wearing one failed call.
+            Log::warning('Verkada streaming token refused', [
+                'status' => $response->status(),
+                'verkada_said' => $response->json('message'),
+            ]);
 
             return null;
         }

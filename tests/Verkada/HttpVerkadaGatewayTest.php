@@ -296,6 +296,26 @@ class HttpVerkadaGatewayTest extends TestCase
         ));
     }
 
+    /**
+     * The streaming token is the one call that authenticates with the org API
+     * key rather than the session token. Sending the session token returns a
+     * 500 "Unknown error" from Verkada, which reads as an outage rather than a
+     * mistake — so this asserts the header, not just the outcome.
+     */
+    public function test_the_streaming_token_is_requested_with_the_org_api_key(): void
+    {
+        $this->fake(['*/cameras/v1/footage/token' => Http::response(['jwt' => 'stream-jwt'])]);
+
+        $this->streamingGateway()->footageStreamUrl(
+            'cam_1',
+            CarbonImmutable::createFromTimestamp(1755400000),
+            CarbonImmutable::createFromTimestamp(1755400060),
+        );
+
+        Http::assertSent(fn ($request) => ! str_contains($request->url(), 'footage/token')
+            || ($request->hasHeader('x-api-key', 'test-key') && ! $request->hasHeader('x-verkada-auth')));
+    }
+
     public function test_a_refused_token_yields_no_stream(): void
     {
         $this->fake(['*/cameras/v1/footage/token' => Http::response(status: 403)]);
