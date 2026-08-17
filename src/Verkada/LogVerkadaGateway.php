@@ -128,6 +128,22 @@ class LogVerkadaGateway implements VerkadaGateway
         ];
     }
 
+    /**
+     * Three obviously-fake people, for the same reason the door list has three
+     * obviously-fake doors: an empty list makes the matching screen look broken
+     * and gives a developer nothing to exercise.
+     */
+    public function listAccessUsers(): array
+    {
+        Log::info('[verkada:fake] listAccessUsers');
+
+        return [
+            ['id' => 'demo_user_1', 'name' => 'Demo Nurse', 'email' => 'demo.nurse@example.test', 'employee_id' => 'E-001', 'is_visitor' => false],
+            ['id' => 'demo_user_2', 'name' => 'Demo Pharmacist', 'email' => 'demo.pharmacist@example.test', 'employee_id' => 'E-002', 'is_visitor' => false],
+            ['id' => 'demo_user_3', 'name' => 'Demo Contractor', 'email' => null, 'employee_id' => null, 'is_visitor' => true],
+        ];
+    }
+
     public function testConnection(): array
     {
         return [

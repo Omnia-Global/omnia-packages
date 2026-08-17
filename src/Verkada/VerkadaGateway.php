@@ -73,6 +73,22 @@ interface VerkadaGateway
     public function listAccessGroups(): array;
 
     /**
+     * Everybody Command holds an access credential for.
+     *
+     * The point is matching, not administration: a host keeps its own record
+     * of a person and needs to know which badge is theirs, and asking somebody
+     * to copy a UUID off one screen and paste it into another is how a ward's
+     * morphine safe ends up attributing openings to the wrong nurse.
+     *
+     * `employee_id` is included because it is usually the only identifier the
+     * two systems genuinely share — emails differ between a corporate directory
+     * and a clinical one far more often than payroll numbers do.
+     *
+     * @return array<array{id: string, name: string, email: string|null, employee_id: string|null, is_visitor: bool}>
+     */
+    public function listAccessUsers(): array;
+
+    /**
      * Prove the credentials work, for the "Test connection" button.
      *
      * @return array{ok: bool, message: string}

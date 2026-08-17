@@ -161,6 +161,17 @@ class HttpVerkadaGateway implements VerkadaGateway
         ]);
     }
 
+    public function listAccessUsers(): array
+    {
+        return $this->discover('/access/v1/access_users', 'access_members', fn (array $u) => [
+            'id' => $u['user_id'] ?? $u['id'] ?? null,
+            'name' => $u['full_name'] ?? $u['name'] ?? 'Unnamed person',
+            'email' => $u['email'] ?? null,
+            'employee_id' => $u['employee_id'] ?? null,
+            'is_visitor' => (bool) ($u['is_visitor'] ?? false),
+        ]);
+    }
+
     public function testConnection(): array
     {
         try {
