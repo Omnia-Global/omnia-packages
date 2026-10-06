@@ -27,7 +27,7 @@ are still unverified against a live organisation. One package, one fix.
 ## Contents
 
 - [Installing](#installing)
-- [Verkada](#verkada) — [the gateway](#the-gateway) · [webhooks](#webhook-signatures) · [the fake](#what-the-fake-does-and-why-it-differs-per-method) · [`door_id` vs `door_name`](#door_id-and-door_name)
+- [Verkada](#verkada) — [the gateway](#the-gateway) · [webhooks](#webhook-signatures) · [webhook payloads](#webhook-payloads) · [the mobile app](#a-products-own-mobile-app) · [the fake](#what-the-fake-does-and-why-it-differs-per-method) · [`door_id` vs `door_name`](#door_id-and-door_name)
 - [Configuration](#configuration) · [Overriding the binding](#overriding-the-binding)
 - [Who uses what](#who-uses-what) · [Developing](#developing)
 - [Known limitations](#known-limitations) · [Roadmap](#roadmap) · [Versioning](#versioning)
@@ -102,14 +102,15 @@ product, on a laptop with no hardware on the desk.
 | Area | Methods |
 |---|---|
 | **Access users & groups** | `ensureAccessUser` · `addUserToGroup` · `removeUserFromGroup` · `sendPassInvite` · `deactivateUser` · `listGroupUserIds` |
-| **Discovery** | `listDoors` · `listCameras` · `listAccessGroups` · `testConnection` |
+| **Mobile app** | `mintPassSdkToken` · `activateBle` · `deactivateBle` · `activateRemoteUnlock` · `deactivateRemoteUnlock` |
+| **Discovery** | `listDoors` · `listCameras` · `listAccessGroups` · `listAccessUsers` · `testConnection` |
 | **Doors** | `unlockDoor` |
 | **Events** | `listAccessEvents` · `recentAccessEvents` |
-| **Footage** | `footageLink` · `thumbnailUrl` |
+| **Footage** | `footageLink` · `thumbnailUrl` · `footageStreamUrl` |
 | **Helix** | `createHelixEvent` |
 | **Person of Interest** | `enrolPersonOfInterest` · `removePersonOfInterest` · `listPersonOfInterestIds` |
 
-Nineteen methods, and the interface is the **union** of what the three products
+Twenty-six methods, and the interface is the **union** of what the three products
 need rather than the intersection. Pulse and Campus issue mobile passes; Vault
 reads footage and writes Helix events. A product that never calls a method pays
 nothing for its existence — the fakes make the unused half free — so splitting
@@ -145,6 +146,69 @@ reads `getContent()` and never the parsed array.
 unauthenticated endpoint that writes to a custody record, an attendance roll or
 a door history is a worse failure than a webhook that does not work yet.
 
+### Webhook payloads
+
+```php
+use OmniaGlobal\OmniaPackages\Verkada\AccessWebhookEvent;
+
+$payload = $request->json()->all();
+$event = AccessWebhookEvent::parse($payload);
+
+if ($event['door_id'] === null) {
+    Log::warning('Verkada webhook carried no door', ['shape' => AccessWebhookEvent::shape($payload)]);
+}
+```
+
+Verkada describes the same door event in three vocabularies, and which one
+arrives depends on how the webhook was made in Command rather than on anything a
+product chooses: an event-based **alert** (`data.details.*`), the **documented
+webhook** (`data.*`), and the **events-API** form (`data.event_info.*`, in
+camelCase). `parse()` reads all three and returns exactly the shape of one
+`listAccessEvents()` row, so the webhook and the polling backfill go into the
+same upsert and cannot disagree.
+
+The pitfalls it absorbs, each of which Vault met first:
+
+- **The person is in `data.user_info.user_id`**, not `data.user_id`. Read from
+  the wrong place it is null, and the event records with nobody attached.
+- **`alert_id` names the rule, not the occurrence.** Keyed on directly, every
+  event under one rule collapses into the first ever recorded. With no real
+  event id, one is derived from the rule, the moment, the door and the person —
+  stable across a redelivery, distinct between two events. The derivation is
+  Vault's to the byte, so ids it already stored still match.
+- **`data.created` is when the door was used**; `created_at` is when Verkada
+  built the delivery. A retry after an outage wraps an old event in a fresh
+  envelope, so the event's own time wins.
+- **Seconds or ISO-8601**, depending on the event. `time` is always ISO-8601.
+
+`shape()` returns the dotted field paths of a payload and none of the values —
+for logging a shape nobody has seen yet without putting a member's name in a log
+file.
+
+### A product's own mobile app
+
+Pulse is shipping a branded member app with Verkada's Pass SDK inside it, rather
+than asking members to install Verkada's. The credential still lives in Command
+and the door still decides; the product only chooses which app the phone opens.
+
+- **`mintPassSdkToken($userId, $codeChallenge)`** — the app makes a PKCE
+  challenge and keeps the verifier; the **host backend** mints the token with
+  the org key and hands it back. Never the app: an app holding the org key holds
+  every door in the organisation. Verkada documents this endpoint only in its
+  SDK README, which names the request and not the reply, so the token is read
+  from `token`, `sdk_token` or `access_token` and the whole body comes back as
+  `raw`. If Verkada's real field is a fourth name, the host reads `raw` today
+  and the package catches up later.
+- **`activateBle` / `deactivateBle`** — tap-to-open over Bluetooth.
+- **`activateRemoteUnlock` / `deactivateRemoteUnlock`** — opening a door from
+  the app without standing at it. Granting the capability is all this does;
+  which doors deserve it is the host's decision, and the `unlockDoor()` caution
+  above applies with more force to a phone than to a pharmacist.
+
+All four switches put `user_id` in the **query string**, which is where Verkada
+documents it for every access-user capability. So does `sendPassInvite`, which
+sent it in the body until 0.6.0.
+
 ### What the fake does, and why it differs per method
 
 `LogVerkadaGateway` is not uniformly "return nothing". Each choice is
@@ -161,6 +225,8 @@ cannot flatten them.
 | `ensureAccessUser` | a stable id derived from the email | The same person twice must not look like two people to a reconciler |
 | `recentAccessEvents` | the host's mirror if one is registered, else demo rows | [See below](#serving-your-own-mirrored-history) |
 | `testConnection` | `ok: false` and an explanation | It says plainly that no key is set and no real door will open |
+| `mintPassSdkToken` | `fake-sdk-token-…`, stable per person and challenge | The SDK refuses it, which is right — there is no pass to open, and an app developer should see that rather than a pretend success |
+| `activateBle` · `activateRemoteUnlock` and their opposites | nothing; logged | A switch with nothing behind it |
 
 #### Serving your own mirrored history
 
@@ -257,6 +323,8 @@ module to move here, at which point both products drop their override.
 |---|---|---|---|
 | Access users, groups, reconcile | ✔ | ✔ | ✔ |
 | `sendPassInvite` — mobile credentials | ✔ | ✔ | — cards, not phones |
+| Mobile app — `mintPassSdkToken`, BLE and remote-unlock switches | ✔ branded member app | likely, later | — cards, not phones |
+| `AccessWebhookEvent` — webhook payloads | ✔ | likely, later | not yet — still parses by hand |
 | `recentAccessEvents` — a person's history | ✔ | declared, unused | — |
 | `listAccessEvents` reads | `door_name` | `door_name` | `door_id` |
 | Discovery (`listDoors` …) | — | — | ✔ cabinet binding screen |
@@ -275,7 +343,7 @@ deliberate future change, not an oversight.
 
 ```bash
 composer install
-./vendor/bin/phpunit      # 22 tests, 52 assertions
+./vendor/bin/phpunit      # 70 tests, 195 assertions
 ./vendor/bin/pint
 ```
 
@@ -289,6 +357,8 @@ The suite is small and every test is there for a reason. The ones worth knowing:
 | `GatewayBindingTest` | The package's whole promise — ask for `VerkadaGateway`, never ask whether Verkada is configured. Including that an **empty-string** key counts as no key, since a half-filled `.env` is the common case |
 | `WebhookSignatureTest` | That an unsigned, wrongly-signed or unconfigured webhook is refused — and that the digest is over the raw body, not re-encoded JSON |
 | `LogVerkadaGatewayTest` | Every per-method choice in the table above, so the fake's deliberate asymmetry survives a tidy-up |
+| `HttpVerkadaGatewayTest` | The real client against fixtures transcribed from Verkada's reference — including *where* `user_id` goes, query or body, since the wrong one fails only against a real org |
+| `AccessWebhookEventTest` | All three webhook vocabularies, and a synthetic event id that survives a redelivery and is still Vault's |
 
 ### Working on the package and a product together
 
@@ -365,6 +435,7 @@ that is how you end up back with three copies wearing a different hat.
 
 | Version | What changed |
 |---|---|
+| `0.6.0` | **For a product's own mobile app.** `mintPassSdkToken()` for Verkada's Pass SDK embedded in a branded app — its response shape is unconfirmed, hence `raw` — and `activateBle`/`deactivateBle`/`activateRemoteUnlock`/`deactivateRemoteUnlock`. `AccessWebhookEvent::parse()` lifts Vault's webhook parsing into the package, returning a `listAccessEvents()` row. **Correctness fix:** `sendPassInvite` sends `user_id` as a query parameter, as Verkada documents, rather than in the JSON body. A stray block in `unlockDoor` that read a non-existent `$event` is removed. **Breaking** for any hand-implementation of `VerkadaGateway` — five new methods |
 | `0.5.0` | `footageStreamUrl()` and `streamingToken()`: an HLS playlist for a span of recorded footage, so a product can play video in its own interface instead of sending somebody to Command. Still not rehosting — the browser fetches segments from Verkada directly. **Whoever adopts this takes on the access decision Command used to make**, and needs its own answer to who may watch and its own audit trail |
 | `0.4.0` | `listAccessUsers()`, so hosts can match their own people to Verkada credentials instead of pasting UUIDs between screens |
 | `0.3.2` | `verkada_user_name` alongside the id on access events |

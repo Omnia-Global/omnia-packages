@@ -78,6 +78,44 @@ class LogVerkadaGateway implements VerkadaGateway
         Log::info('[verkada:fake] deactivateUser', compact('verkadaUserId'));
     }
 
+    /**
+     * A token that is stable for the same person and challenge and obviously
+     * fake. The SDK will refuse it, which is right: without a Verkada
+     * organisation there is no pass to open, and an app developer should see
+     * that rather than a pretend success.
+     */
+    public function mintPassSdkToken(string $verkadaUserId, string $codeChallenge): array
+    {
+        $token = 'fake-sdk-token-'.Str::substr(md5($verkadaUserId.$codeChallenge), 0, 12);
+        Log::info('[verkada:fake] mintPassSdkToken', compact('verkadaUserId') + ['returns' => $token]);
+
+        return [
+            'token' => $token,
+            'expires_at' => now()->addMinutes(30)->toIso8601String(),
+            'raw' => [],
+        ];
+    }
+
+    public function activateBle(string $verkadaUserId): void
+    {
+        Log::info('[verkada:fake] activateBle', compact('verkadaUserId'));
+    }
+
+    public function deactivateBle(string $verkadaUserId): void
+    {
+        Log::info('[verkada:fake] deactivateBle', compact('verkadaUserId'));
+    }
+
+    public function activateRemoteUnlock(string $verkadaUserId): void
+    {
+        Log::info('[verkada:fake] activateRemoteUnlock', compact('verkadaUserId'));
+    }
+
+    public function deactivateRemoteUnlock(string $verkadaUserId): void
+    {
+        Log::info('[verkada:fake] deactivateRemoteUnlock', compact('verkadaUserId'));
+    }
+
     public function listGroupUserIds(string $groupId): array
     {
         Log::info('[verkada:fake] listGroupUserIds', compact('groupId'));

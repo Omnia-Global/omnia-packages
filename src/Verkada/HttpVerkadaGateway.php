@@ -81,10 +81,16 @@ class HttpVerkadaGateway implements VerkadaGateway
         }
     }
 
+    /**
+     * `user_id` goes in the query string. Verkada's reference documents it as
+     * a query parameter on every access-user capability endpoint; this sent it
+     * in the JSON body until 0.6.0.
+     */
     public function sendPassInvite(string $verkadaUserId): void
     {
         $this->request()
-            ->post('/access/v1/access_users/user/pass/invite', ['user_id' => $verkadaUserId])
+            ->withQueryParameters(['user_id' => $verkadaUserId])
+            ->post('/access/v1/access_users/user/pass/invite')
             ->throw();
     }
 
@@ -93,6 +99,94 @@ class HttpVerkadaGateway implements VerkadaGateway
         $this->request()
             ->put('/access/v1/access_users/user/deactivate', ['user_id' => $verkadaUserId])
             ->throw();
+    }
+
+    // --- Mobile app: the Pass SDK and a person's capabilities ---------------
+
+    /**
+     * The token is read from whichever of three plausible keys Verkada sends,
+     * because the SDK README names the request and not the response. `raw`
+     * carries the whole body so a host is never blocked on this guess.
+     */
+    public function mintPassSdkToken(string $verkadaUserId, string $codeChallenge): array
+    {
+        $response = $this->request()
+            ->post('/v2/access/user/pass/sdk_token', [
+                'user_id' => $verkadaUserId,
+                'code_challenge' => $codeChallenge,
+            ])
+            ->throw();
+
+        $body = $response->json();
+        $body = is_array($body) ? $body : [];
+
+        $token = collect(['token', 'sdk_token', 'access_token'])
+            ->map(fn (string $key) => $body[$key] ?? null)
+            ->first(fn ($value) => is_string($value) && $value !== '');
+
+        if ($token === null) {
+            // A 2xx with no token we recognise is Verkada's shape differing
+            // from our guess. Say which keys did arrive — never their values,
+            // since one of them is a credential.
+            throw new \RuntimeException(
+                'Verkada minted a Pass SDK token but no token field was recognised. Keys received: '
+                .implode(', ', array_keys($body))
+            );
+        }
+
+        return [
+            'token' => $token,
+            'expires_at' => $this->expiry($body['expires_at'] ?? $body['expiry'] ?? null),
+            'raw' => $body,
+        ];
+    }
+
+    public function activateBle(string $verkadaUserId): void
+    {
+        $this->capability('ble/activate', $verkadaUserId);
+    }
+
+    public function deactivateBle(string $verkadaUserId): void
+    {
+        $this->capability('ble/deactivate', $verkadaUserId);
+    }
+
+    public function activateRemoteUnlock(string $verkadaUserId): void
+    {
+        $this->capability('remote_unlock/activate', $verkadaUserId);
+    }
+
+    public function deactivateRemoteUnlock(string $verkadaUserId): void
+    {
+        $this->capability('remote_unlock/deactivate', $verkadaUserId);
+    }
+
+    /**
+     * Verkada's access-user capability switches all share one shape: a PUT
+     * with `user_id` in the query string and no meaningful body. Sending it in
+     * the body instead — the natural guess, and what sendPassInvite did — is
+     * not documented to work and should not be relied on.
+     */
+    private function capability(string $action, string $verkadaUserId): void
+    {
+        $this->request()
+            ->withQueryParameters(['user_id' => $verkadaUserId])
+            ->put('/access/v1/access_users/user/'.$action)
+            ->throw();
+    }
+
+    /**
+     * An expiry as ISO-8601. Epoch seconds are converted; so are epoch
+     * milliseconds, which would otherwise land some fifty thousand years in
+     * the future. A string is passed through as Verkada sent it.
+     */
+    private function expiry(mixed $raw): ?string
+    {
+        if (is_numeric($raw) && (float) $raw > 100_000_000_000) {
+            $raw = (int) ((float) $raw / 1000);
+        }
+
+        return $this->timestamp($raw);
     }
 
     /**
@@ -250,12 +344,6 @@ class HttpVerkadaGateway implements VerkadaGateway
 
         $this->request()
             ->post($path, array_filter([
-                // Verkada's name for the badge holder, carried alongside the id.
-                // A host that cannot match the credential to its own records can
-                // still say who Verkada thinks it is, instead of showing a UUID.
-                'verkada_user_name' => $event['user_name']
-                    ?? ($info['userName'] ?? null)
-                    ?? ($info['userInfo']['name'] ?? null),
                 'door_id' => $doorId,
                 'user_id' => $asVerkadaUserId,
             ]))

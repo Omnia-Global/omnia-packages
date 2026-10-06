@@ -53,6 +53,45 @@ interface VerkadaGateway
 
     public function deactivateUser(string $verkadaUserId): void;
 
+    // --- Mobile app: the Pass SDK and a person's capabilities ---------------
+    // For a product that ships its own branded app with Verkada's Pass SDK
+    // embedded, instead of asking members to install Verkada's. Pulse first.
+    // The credential still lives in Command and the door still decides; the
+    // product only chooses which app the phone opens.
+
+    /**
+     * Mint a short-lived token for the Verkada Pass SDK embedded in a product's
+     * own mobile app.
+     *
+     * The app generates a PKCE code challenge and keeps the verifier; the host
+     * backend — never the app — calls this with the org API key and hands the
+     * token back to the app it authenticated. An app holding the org key holds
+     * every door in the organisation.
+     *
+     * ⚠ The response shape is unconfirmed. Verkada documents this endpoint only
+     * in its SDK README, which names the request and not the reply, so the
+     * token is read from the first of `token`, `sdk_token`, `access_token`, and
+     * the whole decoded body is returned as `raw` so a host can read whatever
+     * Verkada actually sends without waiting for a release of this package.
+     *
+     * @return array{token: string, expires_at: string|null, raw: array<string, mixed>}
+     */
+    public function mintPassSdkToken(string $verkadaUserId, string $codeChallenge): array;
+
+    /** Enable the user's Bluetooth (BLE) unlock capability in Command. */
+    public function activateBle(string $verkadaUserId): void;
+
+    public function deactivateBle(string $verkadaUserId): void;
+
+    /**
+     * Enable the user's remote-unlock capability in Command — unlocking a door
+     * from the app without standing at it. Whether that is wise for a given
+     * door is the host's decision; this only grants the capability.
+     */
+    public function activateRemoteUnlock(string $verkadaUserId): void;
+
+    public function deactivateRemoteUnlock(string $verkadaUserId): void;
+
     /** @return array<string> Verkada user IDs currently in the group, for reconciliation. */
     public function listGroupUserIds(string $groupId): array;
 

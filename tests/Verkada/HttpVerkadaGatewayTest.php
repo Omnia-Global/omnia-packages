@@ -3,6 +3,7 @@
 namespace OmniaGlobal\OmniaPackages\Tests\Verkada;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use OmniaGlobal\OmniaPackages\Tests\TestCase;
 use OmniaGlobal\OmniaPackages\Verkada\AccessResult;
@@ -100,6 +101,192 @@ class HttpVerkadaGatewayTest extends TestCase
         $this->fake(['*/access/v1/doors*' => Http::response(status: 503)]);
 
         $this->assertSame([], $this->gateway()->listDoors());
+    }
+
+    // --- Access users: invites and capabilities -----------------------------
+
+    /** The calls under test, excluding the session-token exchange. */
+    private function sentToVerkada(): array
+    {
+        return collect(Http::recorded())
+            ->map(fn (array $pair) => $pair[0])
+            ->reject(fn ($request) => str_ends_with(parse_url($request->url(), PHP_URL_PATH), '/token'))
+            ->values()
+            ->all();
+    }
+
+    private function assertQueryUserId(string $method, string $path, string $userId): void
+    {
+        $sent = $this->sentToVerkada();
+
+        $this->assertCount(1, $sent);
+        $this->assertSame($method, $sent[0]->method());
+        $this->assertSame($path, parse_url($sent[0]->url(), PHP_URL_PATH));
+
+        parse_str((string) parse_url($sent[0]->url(), PHP_URL_QUERY), $query);
+        $this->assertSame($userId, $query['user_id'] ?? null, 'user_id belongs in the query string.');
+        $this->assertArrayNotHasKey('user_id', $sent[0]->data(), 'user_id must not also be sent in the body.');
+    }
+
+    /**
+     * Verkada documents `user_id` as a query parameter on the invite. This
+     * sent it in the JSON body until 0.6.0.
+     */
+    public function test_a_pass_invite_sends_the_user_in_the_query_string(): void
+    {
+        $this->fake(['*/access/v1/access_users/user/pass/invite*' => Http::response([])]);
+
+        $this->gateway()->sendPassInvite('user_a');
+
+        $this->assertQueryUserId('POST', '/access/v1/access_users/user/pass/invite', 'user_a');
+    }
+
+    public function test_ble_is_activated_with_the_user_in_the_query_string(): void
+    {
+        $this->fake(['*/access/v1/access_users/user/ble/activate*' => Http::response([])]);
+
+        $this->gateway()->activateBle('user_a');
+
+        $this->assertQueryUserId('PUT', '/access/v1/access_users/user/ble/activate', 'user_a');
+    }
+
+    public function test_ble_is_deactivated_with_the_user_in_the_query_string(): void
+    {
+        $this->fake(['*/access/v1/access_users/user/ble/deactivate*' => Http::response([])]);
+
+        $this->gateway()->deactivateBle('user_a');
+
+        $this->assertQueryUserId('PUT', '/access/v1/access_users/user/ble/deactivate', 'user_a');
+    }
+
+    public function test_remote_unlock_is_activated_with_the_user_in_the_query_string(): void
+    {
+        $this->fake(['*/access/v1/access_users/user/remote_unlock/activate*' => Http::response([])]);
+
+        $this->gateway()->activateRemoteUnlock('user_a');
+
+        $this->assertQueryUserId('PUT', '/access/v1/access_users/user/remote_unlock/activate', 'user_a');
+    }
+
+    public function test_remote_unlock_is_deactivated_with_the_user_in_the_query_string(): void
+    {
+        $this->fake(['*/access/v1/access_users/user/remote_unlock/deactivate*' => Http::response([])]);
+
+        $this->gateway()->deactivateRemoteUnlock('user_a');
+
+        $this->assertQueryUserId('PUT', '/access/v1/access_users/user/remote_unlock/deactivate', 'user_a');
+    }
+
+    /** A capability Verkada refused must not look like one it granted. */
+    public function test_a_refused_capability_change_throws(): void
+    {
+        $this->fake(['*/access/v1/access_users/user/remote_unlock/activate*' => Http::response(status: 403)]);
+
+        $this->expectException(RequestException::class);
+
+        $this->gateway()->activateRemoteUnlock('user_a');
+    }
+
+    // --- Pass SDK -----------------------------------------------------------
+
+    public function test_a_pass_sdk_token_is_minted_for_the_user_and_challenge(): void
+    {
+        $this->fake(['*/v2/access/user/pass/sdk_token' => Http::response([
+            'token' => 'sdk-abc',
+            'expires_at' => 1755400000,
+        ])]);
+
+        $minted = $this->gateway()->mintPassSdkToken('user_a', 'challenge_xyz');
+
+        $sent = $this->sentToVerkada();
+        $this->assertCount(1, $sent);
+        $this->assertSame('POST', $sent[0]->method());
+        $this->assertSame('/v2/access/user/pass/sdk_token', parse_url($sent[0]->url(), PHP_URL_PATH));
+        $this->assertSame(['user_id' => 'user_a', 'code_challenge' => 'challenge_xyz'], $sent[0]->data());
+        $this->assertTrue($sent[0]->hasHeader('x-verkada-auth', 'session-token'));
+
+        $this->assertSame('sdk-abc', $minted['token']);
+        // Epoch seconds in, ISO-8601 out.
+        $this->assertSame('2025-08-17T03:06:40+00:00', $minted['expires_at']);
+        $this->assertSame(['token' => 'sdk-abc', 'expires_at' => 1755400000], $minted['raw']);
+    }
+
+    /** The response shape is undocumented, so each plausible key is tried. */
+    public function test_the_sdk_token_is_read_from_whichever_key_verkada_uses(): void
+    {
+        $this->fake(['*/v2/access/user/pass/sdk_token' => Http::response([
+            'sdk_token' => 'sdk-def',
+            'expiry' => '2026-10-06T10:30:00+00:00',
+            'something_new' => 'kept in raw',
+        ])]);
+
+        $minted = $this->gateway()->mintPassSdkToken('user_a', 'challenge_xyz');
+
+        $this->assertSame('sdk-def', $minted['token']);
+        $this->assertSame('2026-10-06T10:30:00+00:00', $minted['expires_at']);
+        $this->assertSame('kept in raw', $minted['raw']['something_new']);
+    }
+
+    public function test_an_sdk_token_without_an_expiry_says_so(): void
+    {
+        $this->fake(['*/v2/access/user/pass/sdk_token' => Http::response(['access_token' => 'sdk-ghi'])]);
+
+        $minted = $this->gateway()->mintPassSdkToken('user_a', 'challenge_xyz');
+
+        $this->assertSame('sdk-ghi', $minted['token']);
+        $this->assertNull($minted['expires_at']);
+    }
+
+    public function test_a_refused_sdk_token_throws(): void
+    {
+        $this->fake(['*/v2/access/user/pass/sdk_token' => Http::response(status: 403)]);
+
+        $this->expectException(RequestException::class);
+
+        $this->gateway()->mintPassSdkToken('user_a', 'challenge_xyz');
+    }
+
+    /** A 2xx with no token we recognise is a shape mismatch, not a success. */
+    public function test_a_reply_with_no_recognisable_token_throws(): void
+    {
+        $this->fake(['*/v2/access/user/pass/sdk_token' => Http::response(['jwt_thing' => 'x'])]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('jwt_thing');
+
+        $this->gateway()->mintPassSdkToken('user_a', 'challenge_xyz');
+    }
+
+    // --- Doors --------------------------------------------------------------
+
+    /**
+     * Remote unlock from a member's app goes through here, and nothing tested
+     * it. 0.3.2 had pasted an event-mapping block into it that read an `$event`
+     * which does not exist there — harmless only because `??` swallows the
+     * undefined variable and array_filter dropped the null. The body sent is
+     * pinned so the next stray key is noticed.
+     */
+    public function test_a_door_is_unlocked_as_a_user(): void
+    {
+        $this->fake(['*/access/v1/door/user_unlock' => Http::response([])]);
+
+        $this->gateway()->unlockDoor('door_1', 'user_a');
+
+        $sent = $this->sentToVerkada();
+        $this->assertCount(1, $sent);
+        $this->assertSame('/access/v1/door/user_unlock', parse_url($sent[0]->url(), PHP_URL_PATH));
+        $this->assertSame(['door_id' => 'door_1', 'user_id' => 'user_a'], $sent[0]->data());
+    }
+
+    public function test_a_door_is_unlocked_as_admin_when_nobody_is_named(): void
+    {
+        $this->fake(['*/access/v1/door/admin_unlock' => Http::response([])]);
+
+        $this->gateway()->unlockDoor('door_1');
+
+        $sent = $this->sentToVerkada();
+        $this->assertSame('/access/v1/door/admin_unlock', parse_url($sent[0]->url(), PHP_URL_PATH));
+        $this->assertSame(['door_id' => 'door_1'], $sent[0]->data());
     }
 
     // --- Group membership ---------------------------------------------------

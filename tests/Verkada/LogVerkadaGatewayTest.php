@@ -2,6 +2,7 @@
 
 namespace OmniaGlobal\OmniaPackages\Tests\Verkada;
 
+use Illuminate\Support\Facades\Log;
 use OmniaGlobal\OmniaPackages\Tests\TestCase;
 use OmniaGlobal\OmniaPackages\Verkada\LogVerkadaGateway;
 
@@ -132,6 +133,36 @@ class LogVerkadaGatewayTest extends TestCase
         foreach ($events as $event) {
             $this->assertArrayHasKey('door_name', $event);
             $this->assertArrayHasKey('result', $event);
+        }
+    }
+
+    /**
+     * Stable for the same person and challenge, and obviously fake — the SDK
+     * will refuse it, which is right when there is no organisation behind it.
+     */
+    public function test_a_pass_sdk_token_is_stable_and_clearly_fake(): void
+    {
+        $first = $this->gateway->mintPassSdkToken('vk_1', 'challenge');
+        $second = $this->gateway->mintPassSdkToken('vk_1', 'challenge');
+
+        $this->assertSame($first['token'], $second['token']);
+        $this->assertStringStartsWith('fake-sdk-token-', $first['token']);
+        $this->assertNotSame($first['token'], $this->gateway->mintPassSdkToken('vk_2', 'challenge')['token']);
+        $this->assertNotNull($first['expires_at']);
+        $this->assertSame([], $first['raw']);
+    }
+
+    public function test_capability_switches_only_log(): void
+    {
+        Log::spy();
+
+        $this->gateway->activateBle('vk_1');
+        $this->gateway->deactivateBle('vk_1');
+        $this->gateway->activateRemoteUnlock('vk_1');
+        $this->gateway->deactivateRemoteUnlock('vk_1');
+
+        foreach (['activateBle', 'deactivateBle', 'activateRemoteUnlock', 'deactivateRemoteUnlock'] as $method) {
+            Log::shouldHaveReceived('info')->with("[verkada:fake] {$method}", ['verkadaUserId' => 'vk_1'])->once();
         }
     }
 
